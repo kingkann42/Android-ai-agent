@@ -20,32 +20,22 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
-      
-      - name: Extract Android app source
-        run: unzip -q "AndroidAgent_v0.5.0_Source.zip" -d android-source
 
-        name: Install Gradle
+      - name: Extract Android app source
+        run: unzip -q AndroidAgent_v0.5.0_Source.zip -d android-source
+
+      - name: Install Gradle 8.11.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
 
-      - name: Build debug APK
+      - name: Build APK with installed Gradle
         working-directory: android-source/AndroidAgent_v0.5.0
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Build debug APK
-        shell: bash
-        run: |
-          wrapper="$(find . -name gradlew -type f -not -path '*/node_modules/*' -print -quit)"
-          if [[ -z "$wrapper" ]]; then
-            echo "::error::No Gradle wrapper (gradlew) found."
-            exit 1
-          fi
-          cd "$(dirname "$wrapper")"
-          bash ./gradlew assembleDebug --stacktrace
-
-      - uses: actions/upload-artifact@v4
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
         with:
           name: debug-apk
-          path: '**/build/outputs/apk/**/*.apk'
+          path: android-source/AndroidAgent_v0.5.0/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
