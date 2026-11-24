@@ -20,6 +20,9 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
+      
+      - name: Extract Android app source
+        run: unzip -q "AndroidAgent_v0.5.0_Source.zip" -d android-source
 
       - name: Build debug APK
         shell: bash
