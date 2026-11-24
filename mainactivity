@@ -1,0 +1,129 @@
+      - name: Generate replacement MainActivity.kt
+        working-directory: android-source/AndroidAgent_v0.5.0
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/src/main/java/com/example/androidagent/MainActivity.kt")
+          src = path.read_text(encoding="utf-8")
+
+          def replace_once(old, new):
+              global src
+              if src.count(old) != 1:
+                  raise SystemExit(f"Expected one match for {old[:75]!r}. Is this the v0.5.0 source?")
+              src = src.replace(old, new, 1)
+
+          replace_once(
+              "import androidx.compose.runtime.*",
+              "import androidx.compose.runtime.*\n"
+              "import androidx.compose.runtime.saveable.rememberSaveable"
+          )
+          replace_once(
+              'var request by remember { mutableStateOf("") }',
+              '''var request by rememberSaveable { mutableStateOf("") }
+              var connectionOpen by rememberSaveable { mutableStateOf(false) }
+              var showDetails by remember { mutableStateOf(false) }'''
+          )
+          replace_once(
+              'Ready. AI reasoning uses Strawberry Milk over your Tailscale network.',
+              'Preview a plan, then review each step before it runs.'
+          )
+
+          # Replace the old intro. Keep the existing server/model state and preferences.
+          intro = src.index('            item {\n                Text("Your phone-side AI agent"')
+          prompt = src.index('            item { SectionTitle("1 · Ask the agent") }', intro)
+          src = src[:intro] + '''            item {
+                          OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                              Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                  Text("AI connection", style = MaterialTheme.typography.titleMedium)
+                                  Text(server.ifBlank { "No server configured" }, style = MaterialTheme.typography.bodySmall)
+                                  TextButton(enabled = !busy, onClick = { connectionOpen = !connectionOpen }) {
+                                      Text(if (connectionOpen) "Hide settings" else "Edit connection")
+                                  }
+                                  if (connectionOpen) {
+                                      OutlinedTextField(
+                                          value = server, onValueChange = { server = it },
+                                          label = { Text("Ollama base URL") }, enabled = !busy,
+                                          singleLine = true, modifier = Modifier.fillMaxWidth()
+                                      )
+                                      OutlinedTextField(
+                                          value = model, onValueChange = { model = it },
+                                          label = { Text("Model tag") }, enabled = !busy,
+                                          singleLine = true, modifier = Modifier.fillMaxWidth()
+                                      )
+                                      OutlinedButton(
+                                          enabled = !busy && server.isNotBlank() && model.isNotBlank(),
+                                          onClick = {
+                                              server = server.trim().trimEnd('/')
+                                              model = model.trim()
+                                              prefs.edit().putString("server", server).putString("model", model).apply()
+                                              connectionOpen = false
+                                              status = "Settings saved. Preview a plan to try the connection."
+                                          }
+                                      ) { Text("Save settings") }
+                                  }
+                              }
+                          }
+                      }
+          ''' + src[prompt:]
+
+          # Remove the duplicate settings section farther down the original screen.
+          start = src.index('            item { Divider(); SectionTitle("5 · Connection and model settings") }')
+          end = src.index('            item { Divider(); SectionTitle("6 · Local task history and audit log") }', start)
+          src = src[:start] + src[end:]
+
+          # Keep the existing voice launcher and planning callback.
+          replace_once('SectionTitle("1 · Ask the agent")', 'SectionTitle("Plan a task")')
+          replace_once('label = { Text("Type an instruction") }',
+                       'enabled = !busy, label = { Text("What would you like to do?") }, '
+                       'placeholder = { Text("For example: Open Calculator") }')
+          replace_once('Button(onClick = {\n                        val intent = Intent(RecognizerIntent',
+                       'OutlinedButton(enabled = !busy, onClick = {\n                        val intent = Intent(RecognizerIntent')
+          replace_once('busy = true; status = "Sending a planning request to Strawberry Milk…"; plan = null',
+                       'busy = true; showDetails = false; status = "Creating your preview…"; plan = null')
+          replace_once('Text(if (busy) "Planning…" else "Create plan")',
+                       'Text(if (busy) "Planning…" else if (status.startsWith("Planning failed:")) '
+                       '"Retry preview" else "Preview plan")')
+          replace_once('Text(status, style = MaterialTheme.typography.bodyMedium)', '''
+                          if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                          if (status.startsWith("Planning failed:")) {
+                              val message = when {
+                                  status.contains("502") -> "The gateway returned an error. Check the server address or try again later."
+                                  status.contains("failed to connect", true) || status.contains("timed out", true) ->
+                                      "Couldn’t reach the server. Check your connection and the address above."
+                                  else -> "Couldn’t create a plan. Your instruction is still here."
+                              }
+                              Text(message, color = MaterialTheme.colorScheme.error)
+                              TextButton(onClick = { showDetails = !showDetails }) {
+                                  Text(if (showDetails) "Hide details" else "Show details")
+                              }
+                              if (showDetails) Text(status, style = MaterialTheme.typography.bodySmall)
+                          } else {
+                              Text(status, style = MaterialTheme.typography.bodyMedium)
+                          }''')
+
+          for old, new in [
+              ("2 · App discovery and launch", "Apps"),
+              ("3 · User-selected file access", "Files"),
+              ("4 · Optional Accessibility bridge", "Optional accessibility tools"),
+              ("6 · Local task history and audit log", "History"),
+          ]:
+              replace_once(f'SectionTitle("{old}")', f'SectionTitle("{new}")')
+
+          path.write_text(src, encoding="utf-8")
+          print(f"Generated {path}")
+          PY
+
+      - name: Upload replacement Kotlin file
+        uses: actions/upload-artifact@v4
+        with:
+          name: MainActivity-source
+          path: android-source/AndroidAgent_v0.5.0/app/src/main/java/com/example/androidagent/MainActivity.kt
+          if-no-files-found: error
+To download: Commit the workflow to main, then choose Actions → Build debug APK → Run workflow. On the new run’s Summary page, look under Artifacts:
+
+MainActivity-source — unzip it to get the replacement MainActivity.kt.
+debug-apk — appears if compilation succeeds; unzip it to get the installable APK.
+This improvements-only change does not fix Strawberry Milk’s HTTP 502; it makes the active server visible and the error easier to act on. If you later put the downloaded MainActivity.kt into the source ZIP itself, remove the generation step so it doesn’t try to apply the same edits twice.
+
