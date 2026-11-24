@@ -1,0 +1,50 @@
+name: Build App
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate Gradle project
+        id: proj
+        run: |
+          f=$(find . -name settings.gradle.kts -not -path '*/.git/*' | head -n 1)
+          if [ -z "$f" ]; then
+            z=$(find . -maxdepth 2 -name '*.zip' -not -path '*/.git/*' | head -n 1)
+            if [ -n "$z" ]; then
+              echo "No project files found; unzipping $z"
+              unzip -q -o "$z" -d _src -x '__MACOSX/*'
+              f=$(find _src -name settings.gradle.kts | head -n 1)
+            fi
+          fi
+          if [ -z "$f" ]; then echo "No settings.gradle.kts found in repository"; ls -R | head -50; exit 1; fi
+          dir=$(dirname "$f")
+          echo "Project directory: $dir"
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - name: Install Android SDK platform and build tools
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Build debug APK
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: gradle --no-daemon assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AndroidAgent-v0.5.2-debug-apk
+          path: ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
