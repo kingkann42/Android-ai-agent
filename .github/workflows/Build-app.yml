@@ -39,6 +39,11 @@ jobs:
           packages: ''
       - name: Install Android SDK platform and build tools
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Verify tabbed Android screen
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: |
+          file="app/src/main/java/com/example/androidagent/MainActivity.kt"
+          grep -nF 'TabRow(' "$file" || { echo "STOP: Tab bar missing from build source"; exit 1; }
       - name: Build debug APK
         working-directory: ${{ steps.proj.outputs.dir }}
         run: gradle --no-daemon assembleDebug
