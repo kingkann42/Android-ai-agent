@@ -15,6 +15,14 @@ jobs:
         id: proj
         run: |
           f=$(find . -name settings.gradle.kts -not -path '*/.git/*' | head -n 1)
+          if [ -z "$f" ]; then
+            z=$(find . -maxdepth 2 -name '*.zip' -not -path '*/.git/*' | head -n 1)
+            if [ -n "$z" ]; then
+              echo "No project files found; unzipping $z"
+              unzip -q -o "$z" -d _src -x '__MACOSX/*'
+              f=$(find _src -name settings.gradle.kts | head -n 1)
+            fi
+          fi
           if [ -z "$f" ]; then echo "No settings.gradle.kts found in repository"; ls -R | head -50; exit 1; fi
           dir=$(dirname "$f")
           echo "Project directory: $dir"
